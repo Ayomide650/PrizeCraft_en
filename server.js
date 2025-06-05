@@ -56,25 +56,14 @@ function parseTime(timeString) {
         hours += 12;
     }
     
-    // Create date object for today (no timezone adjustment)
+    // Create date object for exact time specified
     const now = new Date();
     const endTime = new Date();
     endTime.setHours(hours, minutes, 0, 0);
     
-    // If time has already passed today, set for the next occurrence (could be today or next day)
+    // If time has already passed today, set for tomorrow
     if (endTime <= now) {
-        // Check if we can still make it today by adding time
-        const todayEnd = new Date();
-        todayEnd.setHours(hours, minutes, 0, 0);
-        
-        // If it's the next day scenario (like 1:30AM when it's 11:50PM)
-        if (hours < 12 && now.getHours() >= 12) {
-            // It's AM time and current time is PM, so it's tomorrow
-            endTime.setDate(endTime.getDate() + 1);
-        } else {
-            // Same day but time passed, set for tomorrow
-            endTime.setDate(endTime.getDate() + 1);
-        }
+        endTime.setDate(endTime.getDate() + 1);
     }
     
     return endTime;
@@ -268,7 +257,7 @@ client.on('interactionCreate', async (interaction) => {
         // Update the embed with new participant count
         const embed = new EmbedBuilder()
             .setTitle('🎉 Giveaway Active')
-            .setDescription(`**Prize:** ${giveaway.prize}\n${giveaway.description ? `**Description:** ${giveaway.description}\n` : ''}\n**Winners:** ${giveaway.winners}\n**Participants:** ${giveaway.participants.length}\n**Ends:** ${giveaway.endTime.toLocaleString('en-US', { timeZone: 'Africa/Lagos' })}`)
+            .setDescription(`**Prize:** ${giveaway.prize}\n${giveaway.description ? `**Description:** ${giveaway.description}\n` : ''}\n**Winners:** ${giveaway.winners}\n**Participants:** ${giveaway.participants.length}\n**Ends:** ${giveaway.endTime.toLocaleString()}`)
             .setColor('#00ff00')
             .setTimestamp();
         
