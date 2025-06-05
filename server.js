@@ -1,6 +1,6 @@
 require('dotenv').config();
 const express = require('express');
-const { Client, GatewayIntentBits, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ModalBuilder, TextInputBuilder, TextInputStyle, PermissionFlagsBits } = require('discord.js');
+const { Client, GatewayIntentBits, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ModalBuilder, TextInputBuilder, TextInputStyle, PermissionFlagsBits, SlashCommandBuilder, REST, Routes } = require('discord.js');
 const cron = require('node-cron');
 
 const app = express();
@@ -18,6 +18,19 @@ const client = new Client({
 
 // Store active giveaways
 const activeGiveaways = new Map();
+
+// Register slash commands
+const commands = [
+    new SlashCommandBuilder()
+        .setName('gcreate')
+        .setDescription('Create a new giveaway (Admin only)')
+        .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+    
+    new SlashCommandBuilder()
+        .setName('gend')
+        .setDescription('End the current giveaway and announce winners (Admin only)')
+        .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+];
 
 // Utility function to parse time with timezone
 function parseTime(timeString) {
@@ -112,20 +125,49 @@ cron.schedule('* * * * *', () => {
     }
 });
 
-client.once('ready', () => {
+client.once('ready', async () => {
     console.log(`${client.user.tag} is online!`);
+    
+    // Register slash commands
+    const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
+    
+    try {
+        console.log('Started refreshing application (/) commands.');
+        
+        await rest.put(
+            Routes.applicationCommands(client.user.id),
+            { body: commands }
+        );
+        
+        console.log('Successfully reloaded application (/) commands.');
+    } catch (error) {
+        console.error('Error registering slash commands:', error);
+    }
 });
 
-client.on('messageCreate', async (message) => {
-    if (message.author.bot) return;
+// Handle slash commands
+client.on('interactionCreate', async (interaction) => {
+    if (!interaction.isChatInputCommand()) return;
     
-    // Check if message is in the designated giveaway channel
-    if (message.channel.id !== process.env.GIVEAWAY_CHANNEL_ID) return;
+    // Check if command is used in the designated giveaway channel
+    if (interaction.channel.id !== process.env.GIVEAWAY_CHANNEL_ID) {
+        await interaction.reply({ 
+            content: 'This command can only be used in the designated giveaway channel.', 
+            ephemeral: true 
+        });
+        return;
+    }
     
     // Check if user is admin
-    if (!message.member.permissions.has(PermissionFlagsBits.Administrator)) return;
+    if (!interaction.member.permissions.has(PermissionFlagsBits.Administrator)) {
+        await interaction.reply({ 
+            content: 'Only administrators can use this command.', 
+            ephemeral: true 
+        });
+        return;
+    }
     
-    if (message.content === '!gcreate') {
+    if (interaction.commandName === 'gcreate') {
         const modal = new ModalBuilder()
             .setCustomId('giveaway_create')
             .setTitle('Create Giveaway');
@@ -165,33 +207,28 @@ client.on('messageCreate', async (message) => {
         
         modal.addComponents(firstRow, secondRow, thirdRow, fourthRow);
         
-        await message.reply({ content: 'Opening giveaway creation form...', ephemeral: true });
-        
-        // Create an interaction for the modal
-        const filter = (interaction) => interaction.customId === 'giveaway_create' && interaction.user.id === message.author.id;
-        
-        try {
-            await message.member.send({ content: 'Please use the slash command interface to create giveaways. Use `/gcreate` in the server.' });
-        } catch {
-            await message.reply({ content: 'Please enable DMs or use the slash command interface for giveaway creation.', ephemeral: true });
-        }
-        
-        return;
+        await interaction.showModal(modal);
     }
     
-    if (message.content === '!gend') {
+    if (interaction.commandName === 'gend') {
         // Find active giveaway in this channel
         const giveawayId = Array.from(activeGiveaways.keys()).find(id => 
-            activeGiveaways.get(id).channel.id === message.channel.id
+            activeGiveaways.get(id).channel.id === interaction.channel.id
         );
         
         if (!giveawayId) {
-            await message.reply({ content: 'No active giveaway found in this channel.', ephemeral: true });
+            await interaction.reply({ 
+                content: 'No active giveaway found in this channel.', 
+                ephemeral: true 
+            });
             return;
         }
         
         await endGiveaway(giveawayId, true);
-        await message.reply({ content: 'Giveaway ended manually!', ephemeral: true });
+        await interaction.reply({ 
+            content: 'Giveaway ended manually and winners have been announced!', 
+            ephemeral: true 
+        });
     }
 });
 
@@ -237,7 +274,7 @@ client.on('interactionCreate', async (interaction) => {
         const row = new ActionRowBuilder().addComponents(participateButton, endButton);
         
         await message.edit({ embeds: [embed], components: [row] });
-        await interaction.reply({ content: 'You have successfully joined the giveaway!', ephemeral: true });
+        await interaction.reply({ content: 'You have successfully joined the giveaway! Good luck! 🍀', ephemeral: true });
     }
     
     if (customId.startsWith('end_')) {
@@ -307,7 +344,7 @@ client.on('interactionCreate', async (interaction) => {
             
             const row = new ActionRowBuilder().addComponents(participateButton, endButton);
             
-            const channel = interaction.client.channels.cache.get(process.env.GIVEAWAY_CHANNEL_ID);
+            const channel = interaction.channel;
             const giveawayMessage = await channel.send({ embeds: [embed], components: [row] });
             
             // Store giveaway data
@@ -321,10 +358,10 @@ client.on('interactionCreate', async (interaction) => {
                 participants: []
             });
             
-            await interaction.reply({ content: 'Giveaway created successfully!', ephemeral: true });
+            await interaction.reply({ content: '🎉 Giveaway created successfully!', ephemeral: true });
             
         } catch (error) {
-            await interaction.reply({ content: `Error: ${error.message}`, ephemeral: true });
+            await interaction.reply({ content: `❌ Error: ${error.message}`, ephemeral: true });
         }
     }
 });
