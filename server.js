@@ -32,7 +32,7 @@ const commands = [
         .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
 ];
 
-// Utility function to parse time with proper timezone handling
+// Utility function to parse time with Nigeria timezone (WAT - UTC+1)
 function parseTime(timeString) {
     const timeRegex = /^(\d{1,2}):(\d{2})\s*(AM|PM)$/i;
     const match = timeString.match(timeRegex);
@@ -56,24 +56,30 @@ function parseTime(timeString) {
         hours += 12;
     }
     
-    // Create date object for exact time specified in local timezone
+    // Get current time in Nigeria timezone (WAT - UTC+1)
     const now = new Date();
-    const endTime = new Date();
+    const nowInNigeria = new Date(now.getTime() + (1 * 60 * 60 * 1000)); // Add 1 hour for WAT
     
-    // Set the time components
-    endTime.setHours(hours, minutes, 0, 0);
+    // Create the target time in Nigeria timezone
+    const endTimeInNigeria = new Date(nowInNigeria);
+    endTimeInNigeria.setHours(hours, minutes, 0, 0);
     
-    // If time has already passed today, set for tomorrow
-    if (endTime <= now) {
-        endTime.setDate(endTime.getDate() + 1);
+    // If time has already passed today in Nigeria time, set for tomorrow
+    if (endTimeInNigeria <= nowInNigeria) {
+        endTimeInNigeria.setDate(endTimeInNigeria.getDate() + 1);
     }
     
-    return endTime;
+    // Convert back to UTC for storage (subtract 1 hour)
+    const endTimeUTC = new Date(endTimeInNigeria.getTime() - (1 * 60 * 60 * 1000));
+    
+    return endTimeUTC;
 }
 
-// Function to format date consistently
+// Function to format date consistently in Nigeria timezone
 function formatEndTime(date) {
-    // Format the date to show local time consistently
+    // Convert UTC time to Nigeria time (WAT - UTC+1)
+    const nigeriaTime = new Date(date.getTime() + (1 * 60 * 60 * 1000));
+    
     const options = {
         year: 'numeric',
         month: '2-digit',
@@ -83,7 +89,7 @@ function formatEndTime(date) {
         hour12: true
     };
     
-    return date.toLocaleString('en-US', options);
+    return nigeriaTime.toLocaleString('en-US', options) + ' WAT';
 }
 
 // Function to end giveaway
@@ -136,13 +142,15 @@ async function endGiveaway(giveawayId, forceEnd = false) {
 // Check for ended giveaways every minute
 cron.schedule('* * * * *', () => {
     const now = new Date();
-    console.log(`Checking giveaways at ${now.toISOString()}`);
+    const nowInNigeria = new Date(now.getTime() + (1 * 60 * 60 * 1000));
+    console.log(`Checking giveaways - Server time: ${now.toISOString()}, Nigeria time: ${formatEndTime(now)}`);
     
     for (const [giveawayId, giveaway] of activeGiveaways) {
-        console.log(`Giveaway ${giveawayId} ends at ${giveaway.endTime.toISOString()}, current time: ${now.toISOString()}`);
+        const endTimeInNigeria = new Date(giveaway.endTime.getTime() + (1 * 60 * 60 * 1000));
+        console.log(`Giveaway ${giveawayId} ends at ${giveaway.endTime.toISOString()} (${formatEndTime(giveaway.endTime)})`);
         
         if (now >= giveaway.endTime) {
-            console.log(`Ending giveaway ${giveawayId}`);
+            console.log(`Ending giveaway ${giveawayId} now`);
             endGiveaway(giveawayId);
         }
     }
@@ -150,9 +158,9 @@ cron.schedule('* * * * *', () => {
 
 client.once('ready', async () => {
     console.log(`${client.user.tag} is online!`);
-    console.log(`Bot timezone: ${Intl.DateTimeFormat().resolvedOptions().timeZone}`);
-    console.log(`Current server time: ${new Date().toISOString()}`);
-    console.log(`Current local time: ${formatEndTime(new Date())}`);
+    console.log(`Server timezone: ${Intl.DateTimeFormat().resolvedOptions().timeZone}`);
+    console.log(`Server time (UTC): ${new Date().toISOString()}`);
+    console.log(`Nigeria time (WAT): ${formatEndTime(new Date())}`);
     
     // Register slash commands
     const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
@@ -351,8 +359,10 @@ client.on('interactionCreate', async (interaction) => {
             const endTime = parseTime(duration);
             const giveawayId = Date.now().toString();
             
-            console.log(`Creating giveaway ${giveawayId} with end time: ${endTime.toISOString()}`);
-            console.log(`Formatted end time for display: ${formatEndTime(endTime)}`);
+            console.log(`Creating giveaway ${giveawayId}`);
+            console.log(`Input time: ${duration}`);
+            console.log(`Parsed end time (UTC): ${endTime.toISOString()}`);
+            console.log(`Display end time (WAT): ${formatEndTime(endTime)}`);
             
             // Create giveaway embed
             const embed = new EmbedBuilder()
@@ -404,12 +414,16 @@ app.get('/', (req, res) => {
 });
 
 app.get('/health', (req, res) => {
+    const now = new Date();
+    const nigeriaTime = new Date(now.getTime() + (1 * 60 * 60 * 1000));
+    
     res.json({ 
         status: 'OK', 
         uptime: process.uptime(),
-        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-        currentTime: new Date().toISOString(),
-        localTime: formatEndTime(new Date())
+        serverTimezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        serverTimeUTC: now.toISOString(),
+        nigeriaTimeWAT: formatEndTime(now),
+        activeGiveaways: activeGiveaways.size
     });
 });
 
