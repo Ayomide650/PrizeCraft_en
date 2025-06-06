@@ -32,7 +32,7 @@ const commands = [
         .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
 ];
 
-// Utility function to parse time with timezone
+// Utility function to parse time with proper timezone handling
 function parseTime(timeString) {
     const timeRegex = /^(\d{1,2}):(\d{2})\s*(AM|PM)$/i;
     const match = timeString.match(timeRegex);
@@ -56,9 +56,11 @@ function parseTime(timeString) {
         hours += 12;
     }
     
-    // Create date object for exact time specified
+    // Create date object for exact time specified in local timezone
     const now = new Date();
     const endTime = new Date();
+    
+    // Set the time components
     endTime.setHours(hours, minutes, 0, 0);
     
     // If time has already passed today, set for tomorrow
@@ -67,6 +69,21 @@ function parseTime(timeString) {
     }
     
     return endTime;
+}
+
+// Function to format date consistently
+function formatEndTime(date) {
+    // Format the date to show local time consistently
+    const options = {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: true
+    };
+    
+    return date.toLocaleString('en-US', options);
 }
 
 // Function to end giveaway
@@ -110,6 +127,7 @@ async function endGiveaway(giveawayId, forceEnd = false) {
         }
         
         activeGiveaways.delete(giveawayId);
+        console.log(`Giveaway ${giveawayId} ended at ${new Date().toISOString()}`);
     } catch (error) {
         console.error('Error ending giveaway:', error);
     }
@@ -118,8 +136,13 @@ async function endGiveaway(giveawayId, forceEnd = false) {
 // Check for ended giveaways every minute
 cron.schedule('* * * * *', () => {
     const now = new Date();
+    console.log(`Checking giveaways at ${now.toISOString()}`);
+    
     for (const [giveawayId, giveaway] of activeGiveaways) {
+        console.log(`Giveaway ${giveawayId} ends at ${giveaway.endTime.toISOString()}, current time: ${now.toISOString()}`);
+        
         if (now >= giveaway.endTime) {
+            console.log(`Ending giveaway ${giveawayId}`);
             endGiveaway(giveawayId);
         }
     }
@@ -127,6 +150,9 @@ cron.schedule('* * * * *', () => {
 
 client.once('ready', async () => {
     console.log(`${client.user.tag} is online!`);
+    console.log(`Bot timezone: ${Intl.DateTimeFormat().resolvedOptions().timeZone}`);
+    console.log(`Current server time: ${new Date().toISOString()}`);
+    console.log(`Current local time: ${formatEndTime(new Date())}`);
     
     // Register slash commands
     const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
@@ -257,7 +283,7 @@ client.on('interactionCreate', async (interaction) => {
         // Update the embed with new participant count
         const embed = new EmbedBuilder()
             .setTitle('🎉 Giveaway Active')
-            .setDescription(`**Prize:** ${giveaway.prize}\n${giveaway.description ? `**Description:** ${giveaway.description}\n` : ''}\n**Winners:** ${giveaway.winners}\n**Participants:** ${giveaway.participants.length}\n**Ends:** ${giveaway.endTime.toLocaleString()}`)
+            .setDescription(`**Prize:** ${giveaway.prize}\n${giveaway.description ? `**Description:** ${giveaway.description}\n` : ''}\n**Winners:** ${giveaway.winners}\n**Participants:** ${giveaway.participants.length}\n**Ends:** ${formatEndTime(giveaway.endTime)}`)
             .setColor('#00ff00')
             .setTimestamp();
         
@@ -325,10 +351,13 @@ client.on('interactionCreate', async (interaction) => {
             const endTime = parseTime(duration);
             const giveawayId = Date.now().toString();
             
+            console.log(`Creating giveaway ${giveawayId} with end time: ${endTime.toISOString()}`);
+            console.log(`Formatted end time for display: ${formatEndTime(endTime)}`);
+            
             // Create giveaway embed
             const embed = new EmbedBuilder()
                 .setTitle('🎉 Giveaway Active')
-                .setDescription(`**Prize:** ${prize}\n${description ? `**Description:** ${description}\n` : ''}\n**Winners:** ${winners}\n**Participants:** 0\n**Ends:** ${endTime.toLocaleString('en-US', { timeZone: 'Africa/Lagos' })}`)
+                .setDescription(`**Prize:** ${prize}\n${description ? `**Description:** ${description}\n` : ''}\n**Winners:** ${winners}\n**Participants:** 0\n**Ends:** ${formatEndTime(endTime)}`)
                 .setColor('#00ff00')
                 .setTimestamp();
             
@@ -358,7 +387,10 @@ client.on('interactionCreate', async (interaction) => {
                 participants: []
             });
             
-            await interaction.reply({ content: '🎉 Giveaway created successfully!', ephemeral: true });
+            await interaction.reply({ 
+                content: `🎉 Giveaway created successfully! It will end at **${formatEndTime(endTime)}**`, 
+                ephemeral: true 
+            });
             
         } catch (error) {
             await interaction.reply({ content: `❌ Error: ${error.message}`, ephemeral: true });
@@ -372,7 +404,13 @@ app.get('/', (req, res) => {
 });
 
 app.get('/health', (req, res) => {
-    res.json({ status: 'OK', uptime: process.uptime() });
+    res.json({ 
+        status: 'OK', 
+        uptime: process.uptime(),
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        currentTime: new Date().toISOString(),
+        localTime: formatEndTime(new Date())
+    });
 });
 
 app.listen(port, () => {
